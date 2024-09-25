@@ -132,7 +132,7 @@ strip = true
 
 [profile.release]
 overflow-checks = false
-codegen-units = 16
+codegen-units = 1
 lto = "fat"
 opt-level = 3
 strip = true
