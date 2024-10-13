@@ -1,6 +1,6 @@
 [package]
 name = "rnacos"
-version = "0.6.0"
+version = "0.6.1"
 authors = ["heqingpan <heqingpan@126.com>"]
 edition = "2018"
 license = "Apache-2.0"
@@ -71,7 +71,7 @@ mime_guess = { version = "2" }
 rusqlite = { version = "0.25", features = ["bundled"] }
 rsql_builder = "0.1.5"
 inner-mem-cache = "0.1.7"
-rnacos-web-dist-wrap = "=0.5.0"
+rnacos-web-dist-wrap = "=0.5.1"
 nacos_rust_client = "0.2"
 zip = "0.6"
 tempfile = "3"
@@ -115,6 +115,7 @@ bcrypt = "0.15"
 [target.'cfg(any(target_os = "linux", target_os = "macos", target_os="windows"))'.dependencies]
 fs2 = "0.4.3"
 dirs = "5.0"
+bitflags = "2.6.0"
 
 [dependencies.uuid]
 version = "1.2.1"
