@@ -42,6 +42,10 @@ impl InstanceWebParams {
     }
 
     pub(crate) fn convert_to_instance(self) -> Result<Instance, String> {
+        let ip = match self.ip {
+            Some(ref value) => value,
+            None => return Err("IP is missing".to_string()),
+        };
         let mut instance = Instance {
             ip: Arc::new(self.ip.unwrap()),
             port: self.port.unwrap(),
