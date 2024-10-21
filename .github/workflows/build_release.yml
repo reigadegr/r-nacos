@@ -1,0 +1,48 @@
+name: build_release.yml
+on:
+  push:
+    branches: ["master"]
+  pull_request:
+    branches: ["master"]
+
+env:
+  CARGO_TERM_COLOR: always
+jobs:
+  build_in_windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: "😄 Checkout env"
+        run: |
+          rustup default nightly
+          cargo +nightly build --release
+      - name: Prepare artifacts
+        run: |
+          mkdir -p ./output
+          copy ./target/release/rnacos.exe ./output/rnacos.exe
+      - name: Pack artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: rnacos_windows
+          compression-level: 9
+          path: output
+
+  build_in_linux:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: "😄 Checkout env"
+        run: |
+          curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- --default-toolchain nightly --profile default -y
+          rustup default nightly
+          cargo +nightly build --release
+      - name: Prepare artifacts
+        run: |
+          mkdir -p ./output
+          cp ./target/release/rnacos ./output/rnacos
+      - name: Pack artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: rnacos_linux
+          compression-level: 9
+          path: output
