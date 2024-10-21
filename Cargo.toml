@@ -127,7 +127,17 @@ features = [
 
 [build-dependencies]
 
+[profile.dev]
+overflow-checks = false
+strip = true
+
 [profile.release]
-#opt-level = 3
-#strip = true
-#lto = true
+overflow-checks = false
+codegen-units = 1
+lto = "fat"
+opt-level = 3
+strip = true
+debug = 0
+debug-assertions = false
+panic = "abort"
+incremental = false
