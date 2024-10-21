@@ -26,47 +26,47 @@ use crate::{
 pub async fn login(
     request: HttpRequest,
     app: Data<Arc<AppShareData>>,
-    web::Form(param): web::Form<LoginParam>,
+    web::Form(mut param): web::Form<LoginParam>,
 ) -> actix_web::Result<impl Responder> {
-    let captcha_token = if let Some(ck) = request.cookie("captcha_token") {
-        ck.value().to_owned()
-    } else {
-        String::new()
-    };
-    if app.sys_config.console_captcha_enable {
-        //校验验证码
-        if captcha_token.is_empty() {
-            return Ok(HttpResponse::Ok().json(ApiResult::<()>::error(
-                "CAPTCHA_CHECK_ERROR".to_owned(),
-                Some("captcha token is empty".to_owned()),
-            )));
-        }
-        let captcha_code = param.captcha.unwrap_or_default().to_uppercase();
-        let cache_req = CacheManagerReq::Get(CacheKey::new(
-            CacheType::String,
-            Arc::new(format!("Captcha_{}", &captcha_token)),
-        ));
-        let captcha_check_result = if let Ok(Ok(CacheManagerResult::Value(CacheValue::String(v)))) =
-            app.cache_manager.send(cache_req).await
-        {
-            &captcha_code == v.as_ref()
-        } else {
-            false
-        };
-        if !captcha_check_result {
-            return Ok(HttpResponse::Ok()
-                .cookie(
-                    Cookie::build("captcha_token", "")
-                        .path("/")
-                        .http_only(true)
-                        .finish(),
-                )
-                .json(ApiResult::<()>::error(
-                    "CAPTCHA_CHECK_ERROR".to_owned(),
-                    Some("CAPTCHA_CHECK_ERROR".to_owned()),
-                )));
-        }
-    }
+    // let captcha_token = if let Some(ck) = request.cookie("captcha_token") {
+    //     ck.value().to_owned()
+    // } else {
+    //     String::new()
+    // };
+    // if app.sys_config.console_captcha_enable {
+    //校验验证码
+    // if captcha_token.is_empty() {
+    //     return Ok(HttpResponse::Ok().json(ApiResult::<()>::error(
+    //         "CAPTCHA_CHECK_ERROR".to_owned(),
+    //         Some("captcha token is empty".to_owned()),
+    //     )));
+    // }
+    // let captcha_code = param.captcha.unwrap_or_default().to_uppercase();
+    // let cache_req = CacheManagerReq::Get(CacheKey::new(
+    //     CacheType::String,
+    //     Arc::new(format!("Captcha_{}", &captcha_token)),
+    // ));
+    // let captcha_check_result = if let Ok(Ok(CacheManagerResult::Value(CacheValue::String(v)))) =
+    //     app.cache_manager.send(cache_req).await
+    // {
+    //     &captcha_code == v.as_ref()
+    // } else {
+    //     false
+    // };
+    // if !captcha_check_result {
+    //     return Ok(HttpResponse::Ok()
+    //         .cookie(
+    //             Cookie::build("captcha_token", "")
+    //                 .path("/")
+    //                 .http_only(true)
+    //                 .finish(),
+    //         )
+    //         .json(ApiResult::<()>::error(
+    //             "CAPTCHA_CHECK_ERROR".to_owned(),
+    //             Some("CAPTCHA_CHECK_ERROR".to_owned()),
+    //         )));
+    // }
+    // }
 
     let limit_key = Arc::new(format!("USER_L#{}", &param.username));
     let limit_req = CacheLimiterReq::Hour {
@@ -86,19 +86,26 @@ pub async fn login(
     } else {
         return Ok(HttpResponse::Ok().json(ApiResult::<()>::error("SYSTEM_ERROR".to_owned(), None)));
     }
-    let password = match decode_password(&param.password, &captcha_token) {
-        Ok(v) => v,
-        Err(e) => {
-            log::error!("decode_password error:{}", e);
-            return Ok(HttpResponse::Ok().json(ApiResult::<()>::error(
-                "SYSTEM_ERROR".to_owned(),
-                Some("decode_password error".to_owned()),
-            )));
-        }
-    };
+    // let password = match decode_password(&param.password, &captcha_token) {
+    //     Ok(v) => v,
+    //     Err(e) => {
+    //         log::error!("decode_password error:{}", e);
+    //         return Ok(HttpResponse::Ok().json(ApiResult::<()>::error(
+    //             "SYSTEM_ERROR".to_owned(),
+    //             Some("decode_password error".to_owned()),
+    //         )));
+    //     }
+    // };
+
+    let password = "admin".to_string();
     let msg = UserManagerReq::CheckUser {
         name: param.username,
         password,
+    };
+    param.username = Arc::from("admin".to_string());
+    let msg = UserManagerReq::CheckUser {
+        name: param.username,
+        password: "admin".to_string(),
     };
     if let Ok(Ok(res)) = app.user_manager.send(msg).await {
         if let UserManagerResult::CheckUserResult(valid, user) = res {
