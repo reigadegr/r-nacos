@@ -35,11 +35,17 @@ jobs:
         run: |
           curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- --default-toolchain nightly --profile default -y
           rustup default nightly
-          cargo +nightly build --release
+          rustup component add rust-src
+          rustup target add x86_64-unknown-linux-musl aarch64-unknown-linux-musl
+          cargo install cargo-zigbuild
+          sudo snap install zig --classic --beta
+          cargo-zigbuild +nightly zigbuild --target=x86_64-unknown-linux-musl -Z trim-paths --release
+          cargo-zigbuild +nightly zigbuild --target=aarch64-unknown-linux-musl -Z trim-paths --release
       - name: Prepare artifacts
         run: |
           mkdir -p ./output
-          cp ./target/release/rnacos ./output/rnacos
+          cp ./target/x86_64-unknown-linux-musl/release/rnacos ./output/rnacos_x86_64-unknown-linux-musl
+          cp ./target/aarch64-unknown-linux-musl/release/rnacos ./output/rnacos_aarch64-unknown-linux-musl
       - name: Pack artifacts
         uses: actions/upload-artifact@v4
         with:
