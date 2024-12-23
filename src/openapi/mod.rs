@@ -4,8 +4,10 @@ use crate::common::AppSysConfig;
 use crate::openapi::constant::NACOS_PREFIX;
 
 pub(crate) mod auth;
+pub(crate) mod backup;
 pub(crate) mod config;
 mod constant;
+pub(crate) mod health;
 pub(crate) mod metrics;
 pub mod middle;
 pub(crate) mod naming;
