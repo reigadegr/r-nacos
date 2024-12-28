@@ -120,6 +120,7 @@ pub async fn login(
                     nickname: user.nickname,
                     roles: user.roles.unwrap_or_default(),
                     extend_infos: user.extend_info.unwrap_or_default(),
+                    namespace_privilege: user.namespace_privilege,
                 });
                 let cache_req = CacheManagerReq::Set {
                     key: CacheKey::new(CacheType::UserSession, token.clone()),
