@@ -1,0 +1,40 @@
+name: Cleanup old artifacts
+
+on:
+  schedule:
+    # 每天运行一次
+    - cron: '0 0 * * *'
+  workflow_dispatch:  
+
+jobs:
+  cleanup:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v2
+
+    - name: Cleanup old artifacts
+      env:
+        GITHUB_TOKEN: ${{ secrets.ACTION_TOKEN }}
+      run: |
+        echo "Fetching artifacts..."
+        artifacts=$(gh api repos/${{ github.repository }}/actions/artifacts --paginate --jq '.artifacts[] | select(.expired == false) | [.id, .name, .created_at] | @tsv')
+        
+        echo "Processing artifacts..."
+        current_date=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+        retention_days=7
+        retention_seconds=$((retention_days * 24 * 60 * 60))
+        
+        while IFS=$'\t' read -r id name created_at; do
+          created_at_seconds=$(date -d "$created_at" +%s)
+          current_date_seconds=$(date -d "$current_date" +%s)
+          age_seconds=$((current_date_seconds - created_at_seconds))
+          
+          if (( age_seconds > retention_seconds )); then
+            echo "Deleting artifact $name (ID: $id) created at $created_at"
+            gh api --method DELETE repos/${{ github.repository }}/actions/artifacts/$id
+          else
+            echo "Keeping artifact $name (ID: $id) created at $created_at"
+          fi
+        done <<< "$artifacts"
