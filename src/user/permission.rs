@@ -259,6 +259,7 @@ lazy_static::lazy_static! {
         //WebResource
         R::WebResource("/manage/service"),
         R::WebResource("/manage/service/instance"),
+        R::WebResource("/manage/subscriber"),
         R::WebResource("/rnacos/manage/service"),
         R::WebResource("/rnacos/manage/service/instance"),
         //path
@@ -267,6 +268,7 @@ lazy_static::lazy_static! {
 
         R::Path("/rnacos/api/console/ns/services",HTTP_METHOD_GET),
         R::Path("/rnacos/api/console/ns/service",HTTP_METHOD_GET),
+        R::Path("/rnacos/api/console/ns/service/subscribers",HTTP_METHOD_GET),
         R::Path("/rnacos/api/console/instances",HTTP_METHOD_GET),
         R::Path("/rnacos/api/console/ns/instance",HTTP_METHOD_GET),
 
@@ -279,6 +281,7 @@ lazy_static::lazy_static! {
         //WebResource
         R::WebResource("/manage/service"),
         R::WebResource("/manage/service/instance"),
+        R::WebResource("/manage/subscriber"),
         R::WebResource("/rnacos/manage/service"),
         R::WebResource("/rnacos/manage/service/instance"),
         R::WebResource("SERVICE_UPDATE"),
@@ -288,6 +291,7 @@ lazy_static::lazy_static! {
 
         R::Path("/rnacos/api/console/ns/services",HTTP_METHOD_GET),
         R::Path("/rnacos/api/console/ns/service",HTTP_METHOD_ALL),
+        R::Path("/rnacos/api/console/ns/service/subscribers",HTTP_METHOD_GET),
         R::Path("/rnacos/api/console/instances",HTTP_METHOD_GET),
         R::Path("/rnacos/api/console/ns/instance",HTTP_METHOD_ALL),
 
