@@ -16,7 +16,6 @@ use super::cluster::model::{
 use super::cluster::node_manage::{InnerNodeManage, NodeManageRequest};
 use super::filter::InstanceFilterUtils;
 use super::listener::{InnerNamingListener, ListenerItem, NamingListenerCmd};
-use super::model::Instance;
 use super::model::InstanceKey;
 use super::model::InstanceShortKey;
 use super::model::InstanceUpdateTag;
@@ -24,6 +23,7 @@ use super::model::ServiceDetailDto;
 use super::model::ServiceInfo;
 use super::model::ServiceKey;
 use super::model::UpdateInstanceType;
+use super::model::{DistroData, Instance};
 use super::naming_delay_nofity::DelayNotifyActor;
 use super::naming_delay_nofity::DelayNotifyCmd;
 use super::naming_subscriber::NamingListenerItem;
@@ -59,25 +59,29 @@ use crate::metrics::metrics_key::MetricsKey;
 use crate::metrics::model::{MetricsItem, MetricsQuery, MetricsRecord};
 use crate::namespace::NamespaceActor;
 use actix::prelude::*;
+use regex::Regex;
 
 //#[derive(Default)]
 #[bean(inject)]
 pub struct NamingActor {
     pub(crate) service_map: HashMap<ServiceKey, Service>,
-    last_id: u64,
+    pub(crate) last_id: u64,
     //用于1.x udp实例变更通知,暂时不启用
-    listener_addr: Option<Addr<InnerNamingListener>>,
-    delay_notify_addr: Option<Addr<DelayNotifyActor>>,
+    pub(crate) listener_addr: Option<Addr<InnerNamingListener>>,
+    pub(crate) delay_notify_addr: Option<Addr<DelayNotifyActor>>,
     pub(crate) subscriber: Subscriber,
-    sys_config: NamingSysConfig,
+    pub(crate) sys_config: NamingSysConfig,
     pub(crate) empty_service_set: TimeoutSet<ServiceKey>,
     pub(crate) instance_metadate_set: TimeoutSet<InstanceKey>,
     pub(crate) namespace_index: NamespaceIndex,
     pub(crate) client_instance_set: HashMap<Arc<String>, HashSet<InstanceKey>>,
-    cluster_node_manage: Option<Addr<InnerNodeManage>>,
-    cluster_delay_notify: Option<Addr<ClusterInstanceDelayNotifyActor>>,
-    namespace_actor: Option<Addr<NamespaceActor>>,
-    current_range: Option<ProcessRange>,
+    pub(crate) cluster_node_manage: Option<Addr<InnerNodeManage>>,
+    pub(crate) cluster_delay_notify: Option<Addr<ClusterInstanceDelayNotifyActor>>,
+    pub(crate) namespace_actor: Option<Addr<NamespaceActor>>,
+    pub(crate) current_range: Option<ProcessRange>,
+    pub(crate) node_id: u64,
+    /// 用于注入测试异常场景
+    pub(crate) disable_notify: bool,
     //dal_addr: Addr<ServiceDalActor>,
 }
 
@@ -114,6 +118,7 @@ impl Inject for NamingActor {
                 sys_config.naming_health_timeout as i64 + 3000;
             self.sys_config.instance_timeout_millis =
                 sys_config.naming_instance_timeout as i64 + 3000;
+            self.node_id = sys_config.raft_node_id;
             log::info!("NamingActor change naming timeout info from env,health_timeout:{},instance_timeout:{}"
                 ,self.sys_config.instance_health_timeout_millis,self.sys_config.instance_timeout_millis)
         }
@@ -146,6 +151,8 @@ impl NamingActor {
             cluster_delay_notify: None,
             current_range: None,
             namespace_actor: None,
+            node_id: 0,
+            disable_notify: false,
             //dal_addr,
         }
     }
@@ -265,6 +272,10 @@ impl NamingActor {
         key: ServiceKey,
         instance: Option<Arc<Instance>>,
     ) {
+        #[cfg(feature = "debug")]
+        if self.disable_notify {
+            return;
+        }
         match tag {
             UpdateInstanceType::New => {
                 self.subscriber.notify(key);
@@ -280,8 +291,10 @@ impl NamingActor {
                 if let (Some(cluster_delay_notify), Some(instance)) =
                     (&self.cluster_delay_notify, instance)
                 {
-                    cluster_delay_notify
-                        .do_send(InstanceDelayNotifyRequest::RemoveInstance(instance));
+                    if instance.from_cluster == 0 {
+                        cluster_delay_notify
+                            .do_send(InstanceDelayNotifyRequest::RemoveInstance(instance));
+                    }
                 }
             }
             UpdateInstanceType::UpdateValue => {
@@ -291,6 +304,19 @@ impl NamingActor {
                 {
                     cluster_delay_notify
                         .do_send(InstanceDelayNotifyRequest::UpdateInstance(instance));
+                }
+            }
+            UpdateInstanceType::UpdateTime => {
+                // 更新时间,只需要通知其它集群更新信息
+                if let (Some(cluster_delay_notify), Some(instance)) =
+                    (&self.cluster_delay_notify, instance)
+                {
+                    // 非grpc的实例才更新心跳时间
+                    // grpc走独立的同步机制
+                    if !instance.from_grpc {
+                        cluster_delay_notify
+                            .do_send(InstanceDelayNotifyRequest::UpdateInstanceBeat(instance));
+                    }
                 }
             }
             _ => {}
@@ -807,7 +833,84 @@ impl NamingActor {
             node_count: 0,
             services: service_details,
             instances,
+            mode: 0,
         }
+    }
+
+    fn query_grpc_distro_data(&self) -> HashMap<Arc<String>, HashSet<InstanceKey>> {
+        let mut client_data: HashMap<Arc<String>, HashSet<InstanceKey>> = HashMap::new();
+        let client_id_pre = format!("{}_", &self.node_id);
+        for (client_id, keys) in &self.client_instance_set {
+            if !client_id.as_ref().starts_with(&client_id_pre) {
+                //不是本节点的grpc client直接跳过
+                continue;
+            }
+            client_data.insert(client_id.clone(), keys.clone());
+        }
+        client_data
+    }
+    fn diff_grpc_distro_data(
+        &self,
+        cluster_id: u64,
+        data: HashMap<ServiceKey, u64>,
+    ) -> HashMap<ServiceKey, i64> {
+        let mut result = HashMap::new();
+        for (service_key, count) in data.iter() {
+            let mut i = *count as i64;
+            if let Some(v) = self.service_map.get(service_key) {
+                for item in v.instances.values() {
+                    if item.from_cluster == cluster_id {
+                        i -= 1;
+                    }
+                }
+            }
+            if i != 0 {
+                log::info!("diff_grpc_distro_data:{:?},{}", service_key, i);
+                result.insert(service_key.clone(), i);
+            }
+        }
+        result
+    }
+
+    fn diff_grpc_distro_client_data(
+        &mut self,
+        cluster_id: u64,
+        data: HashMap<Arc<String>, HashSet<InstanceKey>>,
+    ) -> Vec<InstanceKey> {
+        let mut remove_keys = vec![];
+        let mut new_items: Vec<InstanceKey> = vec![];
+        for (client_id, instances) in data {
+            if let Some(v) = self.client_instance_set.get(&client_id) {
+                for item in v.difference(&instances) {
+                    remove_keys.push((item.get_service_key(), item.get_short_key()));
+                }
+                for item in instances.difference(v) {
+                    new_items.push(item.clone());
+                }
+            } else {
+                for item in instances {
+                    new_items.push(item);
+                }
+            }
+        }
+        for (service_key, client_key) in remove_keys {
+            self.remove_instance(&service_key, &client_key, None);
+        }
+        new_items
+    }
+
+    fn build_distro_instances(&self, instance_keys: Vec<InstanceKey>) -> Vec<Arc<Instance>> {
+        let mut instances = vec![];
+        for instance_key in instance_keys {
+            let service_key = instance_key.get_service_key();
+            let short_key = instance_key.get_short_key();
+            if let Some(v) = self.get_instance(&service_key, &short_key) {
+                if !v.is_from_cluster() {
+                    instances.push(v)
+                }
+            }
+        }
+        instances
     }
 
     ///
@@ -918,12 +1021,16 @@ pub enum NamingCmd {
     Subscribe(Vec<NamingListenerItem>, Arc<String>),
     RemoveSubscribe(Vec<NamingListenerItem>, Arc<String>),
     RemoveClient(Arc<String>),
+    RemoveClientsFromCluster(Vec<Arc<String>>),
     RemoveClientFromCluster(Arc<String>),
     QueryClientInstanceCount,
     QueryDalAddr,
     QuerySnapshot(Vec<ProcessRange>),
     ClusterRefreshProcessRange(ProcessRange),
     ReceiveSnapshot(SnapshotForReceive),
+    QueryGrpcDistroData,
+    DiffGrpcDistroData { cluster_id: u64, data: DistroData },
+    QueryDistroInstanceSnapshot(Vec<InstanceKey>),
 }
 
 pub enum NamingResult {
@@ -938,6 +1045,9 @@ pub enum NamingResult {
     ClientInstanceCount(Vec<(Arc<String>, usize)>),
     RewriteToCluster(u64, Instance),
     Snapshot(SnapshotForSend),
+    GrpcDistroData(DistroData),
+    DiffDistroData(DistroData),
+    DistroInstancesSnapshot(Vec<Arc<Instance>>),
 }
 
 impl Supervised for NamingActor {
@@ -1068,6 +1178,13 @@ impl Handler<NamingCmd> for NamingActor {
                 self.notify_cluster_remove_client_id(client_id);
                 Ok(NamingResult::NULL)
             }
+            NamingCmd::RemoveClientsFromCluster(client_ids) => {
+                for client_id in client_ids {
+                    self.subscriber.remove_client_subscribe(client_id.clone());
+                    self.remove_client_instance(&client_id);
+                }
+                Ok(NamingResult::NULL)
+            }
             NamingCmd::RemoveClientFromCluster(client_id) => {
                 self.subscriber.remove_client_subscribe(client_id.clone());
                 self.remove_client_instance(&client_id);
@@ -1131,6 +1248,26 @@ impl Handler<NamingCmd> for NamingActor {
                 }
                 Ok(NamingResult::NULL)
             }
+            NamingCmd::QueryGrpcDistroData => {
+                let res = self.query_grpc_distro_data();
+                Ok(NamingResult::GrpcDistroData(DistroData::ClientInstances(
+                    res,
+                )))
+            }
+            NamingCmd::DiffGrpcDistroData { data, cluster_id } => {
+                if let DistroData::ClientInstances(data) = data {
+                    let res = self.diff_grpc_distro_client_data(cluster_id, data);
+                    Ok(NamingResult::DiffDistroData(
+                        DistroData::DiffClientInstances(res),
+                    ))
+                } else {
+                    Ok(NamingResult::NULL)
+                }
+            }
+            NamingCmd::QueryDistroInstanceSnapshot(instance_keys) => {
+                let instances = self.build_distro_instances(instance_keys);
+                Ok(NamingResult::DistroInstancesSnapshot(instances))
+            }
         }
     }
 }
@@ -1193,6 +1330,7 @@ fn test_add_service() {
         group_name: service_key.group_name.clone(),
         metadata: Default::default(),
         protect_threshold: Some(0.5),
+        ..Default::default()
     };
     assert!(naming.namespace_index.service_size == 0);
     naming.update_service(service_info);
@@ -1218,6 +1356,7 @@ fn test_remove_has_instance_service() {
         group_name: service_key.group_name.clone(),
         metadata: Default::default(),
         protect_threshold: Some(0.5),
+        ..Default::default()
     };
     assert!(naming.namespace_index.service_size == 1);
     naming.update_service(service_info);

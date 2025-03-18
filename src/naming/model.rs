@@ -1,6 +1,6 @@
-use std::{collections::HashMap, sync::Arc};
-
 use serde::{Deserialize, Serialize};
+use std::collections::HashSet;
+use std::{collections::HashMap, sync::Arc};
 
 use crate::now_millis_i64;
 
@@ -159,6 +159,7 @@ pub struct ServiceDetailDto {
     pub group_name: Arc<String>,
     pub metadata: Option<Arc<HashMap<String, String>>>,
     pub protect_threshold: Option<f32>,
+    pub grpc_instance_count: Option<i32>,
 }
 
 impl ServiceDetailDto {
@@ -234,7 +235,8 @@ impl ServiceKey {
     }
 }
 
-#[derive(Debug, Clone, Default, Hash, PartialEq, Eq)]
+#[derive(Debug, Clone, Default, Hash, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct InstanceKey {
     pub namespace_id: Arc<String>,
     pub group_name: Arc<String>,
@@ -270,7 +272,8 @@ impl InstanceKey {
     }
 }
 
-#[derive(Debug, Clone, Default, Hash, PartialEq, Eq)]
+#[derive(Debug, Clone, Default, Hash, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct InstanceShortKey {
     pub ip: Arc<String>,
     pub port: u32,
@@ -302,4 +305,12 @@ pub enum UpdateInstanceType {
     UpdateValue,
     ///更新其它节点元信息
     UpdateOtherClusterMetaData(u64, Instance),
+}
+
+#[derive(Debug, Clone)]
+pub enum DistroData {
+    ClientInstances(HashMap<Arc<String>, HashSet<InstanceKey>>),
+    #[deprecated]
+    ServiceInstanceCount(HashMap<ServiceKey, u64>),
+    DiffClientInstances(Vec<InstanceKey>),
 }

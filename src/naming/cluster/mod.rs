@@ -13,8 +13,10 @@ use self::{
     },
     node_manage::{NodeManageRequest, NodeManageResponse},
 };
+use crate::common::constant::GRPC_HEAD_KEY_CLUSTER_ID;
 use crate::metrics::model::{MetricsRequest, MetricsResponse};
-use crate::naming::model::Instance;
+use crate::naming::cluster::model::SnapshotForSend;
+use crate::naming::model::{DistroData, Instance};
 use crate::{
     common::appdata::AppShareData,
     naming::core::{NamingCmd, NamingResult},
@@ -27,7 +29,7 @@ pub mod route;
 pub mod sync_sender;
 
 fn get_cluster_id(extend_info: HashMap<String, String>) -> anyhow::Result<u64> {
-    if let Some(id_str) = extend_info.get("cluster_id") {
+    if let Some(id_str) = extend_info.get(GRPC_HEAD_KEY_CLUSTER_ID) {
         match id_str.parse() {
             Ok(id) => Ok(id),
             Err(_err) => Err(anyhow::anyhow!("cluster_id can't parse to u64,{}", id_str)),
@@ -140,6 +142,7 @@ pub async fn handle_naming_route(
             }
             app.naming_inner_node_manage
                 .do_send(NodeManageRequest::AddClientIds(cluster_id, client_sets));
+            //增量数据
             app.naming_addr
                 .do_send(NamingCmd::ReceiveSnapshot(snapshot_receive));
         }
@@ -153,13 +156,69 @@ pub async fn handle_naming_route(
                 return Ok(NamingRouterResponse::MetricsTimeLineResponse(resp));
             }
         }
+        NamingRouteRequest::SyncDistroClientInstances(client_instance) => {
+            let cluster_id = get_cluster_id(extend_info)?;
+            let client_ids: HashSet<Arc<String>> = client_instance.keys().cloned().collect();
+            //清理不存在的client_id数据
+            app.naming_inner_node_manage
+                .send(NodeManageRequest::RemoveDiffClientIds(
+                    cluster_id, client_ids,
+                ))
+                .await??;
+            let res = app
+                .naming_addr
+                .send(NamingCmd::DiffGrpcDistroData {
+                    data: DistroData::ClientInstances(client_instance),
+                    cluster_id,
+                })
+                .await??;
+            if let NamingResult::DiffDistroData(DistroData::DiffClientInstances(diff_data)) = res {
+                log::info!(
+                    "sync distro client|DiffDistroData,{},count:{}",
+                    &cluster_id,
+                    diff_data.len()
+                );
+                if !diff_data.is_empty() {
+                    let cmd = NodeManageRequest::QueryDiffClientInstances(cluster_id, diff_data);
+                    app.naming_inner_node_manage.send(cmd).await??;
+                }
+            }
+        }
+        NamingRouteRequest::QueryDistroInstanceSnapshot(instances) => {
+            if instances.is_empty() {
+                return Ok(NamingRouterResponse::None);
+            }
+            let cluster_id = get_cluster_id(extend_info)?;
+            let res = app
+                .naming_addr
+                .send(NamingCmd::QueryDistroInstanceSnapshot(instances))
+                .await??;
+            if let NamingResult::DistroInstancesSnapshot(instances) = res {
+                if !instances.is_empty() {
+                    let snapshot = SnapshotForSend {
+                        route_index: 0,
+                        node_count: 0,
+                        mode: 0,
+                        services: vec![],
+                        instances,
+                    };
+                    //发送 snapshot data给请求方
+                    let cmd = NodeManageRequest::SendSnapshot(cluster_id, snapshot);
+                    app.naming_inner_node_manage.send(cmd).await??;
+                }
+            }
+        }
     };
     Ok(NamingRouterResponse::None)
 }
 
 fn reset_cluster_info(cluster_id: u64, instance: &mut Instance) {
+    /*
     if instance.client_id.is_empty() && cluster_id > 0 {
         instance.client_id = Arc::new(format!("{}_G", &cluster_id));
     }
-    instance.from_cluster = cluster_id;
+    */
+    if instance.from_cluster == 0 {
+        instance.from_cluster = cluster_id;
+    }
 }
