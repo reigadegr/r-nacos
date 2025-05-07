@@ -35,7 +35,7 @@ use actix_web::{middleware, HttpServer};
 use clap::Parser;
 use env_logger::TimestampPrecision;
 use env_logger_timezone_fmt::{TimeZoneFormat, TimeZoneFormatEnv};
-//use mimalloc::MiMalloc;
+use mimalloc::MiMalloc;
 use crate::cli::{Cli, Commands};
 use rnacos::common::appdata::AppShareData;
 use rnacos::openapi::middle::auth_middle::ApiCheckAuth;
@@ -45,8 +45,8 @@ use rnacos::transfer::mysql_to_data::mysql_to_data;
 use rnacos::transfer::openapi_to_data::openapi_to_data;
 use rnacos::transfer::sqlite_to_data::sqlite_to_data;
 use rnacos::web_config::{app_config, console_config};
-//#[global_allocator]
-//static GLOBAL: MiMalloc = MiMalloc;
+#[global_allocator]
+static GLOBAL: MiMalloc = MiMalloc;
 
 #[actix_web::main]
 async fn main() -> Result<(), Box<dyn Error>> {
