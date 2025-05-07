@@ -15,7 +15,7 @@ jobs:
       - name: "😄 Checkout env"
         run: |
           rustup default nightly
-          cargo +nightly build -Z trim-paths -Z build-std --release
+          cargo +nightly build --release
       - name: Prepare artifacts
         run: |
           mkdir -p ./output
