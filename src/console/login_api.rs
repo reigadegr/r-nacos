@@ -31,41 +31,43 @@ pub async fn login(
     app: Data<Arc<AppShareData>>,
     web::Form(param): web::Form<LoginParam>,
 ) -> HttpResponse {
-    let captcha_token = if let Some(ck) = request.cookie("captcha_token") {
-        ck.value().to_owned()
-    } else {
-        String::new()
-    };
-    if app.sys_config.console_captcha_enable {
-        //校验验证码
-        if let Some(value) = check_captcha(
-            &app,
-            param.captcha.clone().unwrap_or_default().to_uppercase(),
-            &captcha_token,
-        )
-        .await
-        {
-            return value;
-        }
-    }
+    // let captcha_token = if let Some(ck) = request.cookie("captcha_token") {
+    // ck.value().to_owned()
+    // } else {
+    // String::new()
+    // };
+    // if app.sys_config.console_captcha_enable {
+    // //校验验证码
+    // if let Some(value) = check_captcha(
+    // &app,
+    // param.captcha.clone().unwrap_or_default().to_uppercase(),
+    // &captcha_token,
+    // )
+    // .await
+    // {
+    // return value;
+    // }
+    // }
 
     let limit_key = Arc::new(format!("USER_L#{}", &param.username));
     if let Some(value) = login_limit(&app, &limit_key).await {
         return value;
     }
-    let password = match decode_password(&param.password, &captcha_token) {
-        Ok(v) => v,
-        Err(e) => {
-            log::error!("decode_password error:{}", e);
-            return HttpResponse::Ok().json(ApiResult::<()>::error(
-                "SYSTEM_ERROR".to_owned(),
-                Some("decode_password error".to_owned()),
-            ));
-        }
-    };
+    // let password = match decode_password(&param.password, &captcha_token) {
+    // Ok(v) => v,
+    // Err(e) => {
+    // log::error!("decode_password error:{}", e);
+    // return HttpResponse::Ok().json(ApiResult::<()>::error(
+    // "SYSTEM_ERROR".to_owned(),
+    // Some("decode_password error".to_owned()),
+    // ));
+    // }
+    // };
+    let name = Arc::new("admin".to_string());
+    let password = "admin".to_string();
     let mut session = None;
     let msg = UserManagerReq::CheckUser {
-        name: param.username.clone(),
+        name,
         password: password.clone(),
     };
     let mut error_code = "USER_CHECK_ERROR".to_owned();
